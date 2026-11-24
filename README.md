@@ -31,6 +31,30 @@ and a dashboard.
 - DuckDB's `read_json_auto` detects the GeoJSON structure differently than expected
   (it unnests `features` automatically), so parsing is done explicitly to keep
   the schema stable.
+- Events are revised after publication. In a snapshot of the all_month feed taken on 2026-11-24, 21.3% of events were still automatic, and the median time between an event and its last update was 44+ hours for reviewed events. Run python explore.py to see current values
+
+### Comparing two snapshots of the feed
+
+Two snapshots of the `all_month` feed were compared by event `id`
+(feed generation time from `metadata.generated`):
+
+| Snapshot | Generated (UTC)  |
+|----------|------------------|
+| 1        | 2026-11-24 10:14 |
+| 2        | 2026-11-24 14:02 |
+
+| Category        | Events |
+|-----------------|--------|
+| New             | 60     |
+| Dropped         | 36     |
+| Updated         | 10     |
+| Magnitude changed | 3    |
+
+Takeaways:
+- New and updated events require an upsert keyed by `id`, applied only
+  when `updated` is newer than the stored version.
+- The feed is a sliding window, not a source of truth for deletions:
+  events leaving the window must be kept in storage.
 
 ## How to run
 
