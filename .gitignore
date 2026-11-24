@@ -1,5 +1,5 @@
 .venv/
-*.geojson
 *.db
 __pycache__/
 .env
+data/
