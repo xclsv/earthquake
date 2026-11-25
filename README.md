@@ -24,7 +24,7 @@ and a dashboard.
 - [ ] Stage 1: Batch ingestion with Airflow + Postgres
   - [x] Prototype idempotent upsert in DuckDB
   - [x] Postgres in Docker
-  - [ ] Loader for Postgres
+  - [x] Loader for Postgres
   - [ ] Airflow DAG for incremental loading
   - [ ] Backfill via FDSN API
 - [ ] Stage 2: dbt models, data tests, Metabase dashboard
@@ -40,10 +40,32 @@ and a dashboard.
 
 ## How to run
 
-    python -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    python explore.py
+Requirements: Docker, Python 3.
+
+1. Create `.env` from the template and set a password:
+
+       cp .env.example .env
+
+2. Start Postgres:
+
+       docker compose up -d
+
+3. Install Python dependencies:
+
+       python -m venv .venv
+       source .venv/bin/activate
+       pip install -r requirements.txt
+
+4. Download a snapshot of the feed and load it:
+
+       curl -o data/snapshot.geojson \
+         https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson
+       python pipeline/load_snapshot.py data/snapshot.geojson
+
+To recreate the database from scratch (deletes all data):
+
+    docker compose down -v
+    docker compose up -d
 
 ### Comparing two snapshots of the feed
 
@@ -91,6 +113,7 @@ in DuckDB on the two feed snapshots.
   a sliding window, not a source of truth for deletions.
 - `first_seen_at` is kept on updates, `last_loaded_at` is refreshed —
   this allows tracking how many events were revised after the first load.
+- The load is performed as a single transaction via a temporary staging table. The output shows the number of inserted, updated, and unchanged rows
 
 **Assumption**
 
@@ -111,3 +134,15 @@ Reproduce:
     python exploration/create_db.py
     python exploration/load_snapshot.py data/snapshot_1.geojson
     python exploration/load_snapshot.py data/snapshot_2.geojson
+
+## Current architecture
+
+    USGS GeoJSON feed ──▶ pipeline/load_snapshot.py ──▶ Postgres (Docker)
+                          flatten → staging → upsert     earthquake_events
+
+- The table schema lives in `sql/schema.sql` and is applied automatically
+  when the Postgres container is created for the first time.
+- Each load runs in a single transaction: data is written to a temporary
+  staging table, then upserted into `earthquake_events` by `event_id`,
+  only if the incoming version has a newer `updated_at`.
+- The loader reports how many events were inserted, updated and unchanged.
