@@ -1,6 +1,6 @@
 import json, duckdb, pandas as pd
 
-with open("all_month.geojson") as f:
+with open("data/all_month.geojson") as f:
     data = json.load(f)
 
 events = pd.json_normalize(data["features"])  # колонки вида properties.mag, properties.type...

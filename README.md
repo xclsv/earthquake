@@ -33,6 +33,13 @@ and a dashboard.
   the schema stable.
 - Events are revised after publication. In a snapshot of the all_month feed taken on 2026-11-24, 21.3% of events were still automatic, and the median time between an event and its last update was 44+ hours for reviewed events. Run python explore.py to see current values
 
+## How to run
+
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    python explore.py
+
 ### Comparing two snapshots of the feed
 
 Two snapshots of the `all_month` feed were compared by event `id`
@@ -56,9 +63,46 @@ Takeaways:
 - The feed is a sliding window, not a source of truth for deletions:
   events leaving the window must be kept in storage.
 
-## How to run
+### Prototype: loading snapshots with an idempotent upsert
 
-    python -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    python explore.py
+Before building the Airflow pipeline, the loading logic was prototyped
+in DuckDB on the two feed snapshots.
+
+**How it works**
+
+1. Python flattens each GeoJSON feature into a plain record
+   (properties, coordinates, `ids`/`sources` split into lists).
+2. Records go to a staging table.
+3. A single SQL statement casts types (epoch ms → `timestamptz`,
+   0/1 → `boolean`) and upserts into `earthquake_events`.
+
+**Design decisions**
+
+- `event_id` is the primary key: it is the stable USGS identifier.
+- An existing row is overwritten only when the incoming version has a newer
+  `updated_at`. This makes repeated loads a no-op and prevents an older
+  version from overwriting a newer one if they arrive out of order.
+- Events that leave the feed window are never deleted: the feed is
+  a sliding window, not a source of truth for deletions.
+- `first_seen_at` is kept on updates, `last_loaded_at` is refreshed —
+  this allows tracking how many events were revised after the first load.
+
+**Assumption**
+
+USGS bumps `updated` whenever an event changes. Rows with the same
+`updated_at` but different field values would not be updated.
+
+**Verification**
+
+| Check | Expected | Result |
+|---|---|---|
+| New rows after loading snapshot 2 | = new events from comparison | ✅ 60 |
+| Rows with `last_loaded_at > first_seen_at` | = updated events from comparison | ✅ 10 |
+| Dropped events | still present in the table | ✅ |
+| Loading snapshot 2 again | 0 new rows, 0 updated rows | ✅ |
+
+Reproduce:
+
+    python exploration/create_db.py
+    python exploration/load_snapshot.py data/snapshot_1.geojson
+    python exploration/load_snapshot.py data/snapshot_2.geojson
