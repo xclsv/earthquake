@@ -16,12 +16,17 @@ and a dashboard.
 
 ## Status
 
-🚧 Work in progress — currently at stage 0 (data exploration).
+🚧 Work in progress — currently at stage 1 (Airflow + Postgres).
 
 ## Roadmap
 
 - [x] Stage 0: Explore the data with DuckDB
-- [ ] Stage 1: Batch ingestion with Airflow + Postgres (idempotent upserts, backfill)
+- [ ] Stage 1: Batch ingestion with Airflow + Postgres
+  - [x] Prototype idempotent upsert in DuckDB
+  - [x] Postgres in Docker
+  - [ ] Loader for Postgres
+  - [ ] Airflow DAG for incremental loading
+  - [ ] Backfill via FDSN API
 - [ ] Stage 2: dbt models, data tests, Metabase dashboard
 - [ ] Stage 3: Streaming ingestion with Kafka (producer + consumer)
 - [ ] Stage 4: Daily reconciliation of late updates, pipeline monitoring
