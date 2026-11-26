@@ -16,7 +16,7 @@ and a dashboard.
 
 ## Status
 
-🚧 Work in progress — currently at stage 1 (Airflow + Postgres).
+🚧 Stage 1 in progress: infrastructure is up, next step is the incremental loading DAG.
 
 ## Roadmap
 
@@ -25,6 +25,7 @@ and a dashboard.
   - [x] Prototype idempotent upsert in DuckDB
   - [x] Postgres in Docker
   - [x] Loader for Postgres
+  - [x] Airflow in Docker
   - [ ] Airflow DAG for incremental loading
   - [ ] Backfill via FDSN API
 - [ ] Stage 2: dbt models, data tests, Metabase dashboard
@@ -40,29 +41,35 @@ and a dashboard.
 
 ## How to run
 
-Requirements: Docker, Python 3.
+Requirements: Docker (with at least 4 GB of memory available), Python 3.
 
 1. Create `.env` from the template and set a password:
 
        cp .env.example .env
 
-2. Start Postgres:
+2. Start Postgres and Airflow:
 
        docker compose up -d
 
-3. Install Python dependencies:
+   The first start takes a couple of minutes while Airflow initializes
+   its database.
+
+3. Open the Airflow UI at http://localhost:8080. The admin password
+   is generated on first start and printed to the logs:
+
+       docker compose logs airflow | grep -i password
+
+4. (Optional) Load a feed snapshot manually from your machine:
 
        python -m venv .venv
        source .venv/bin/activate
        pip install -r requirements.txt
-
-4. Download a snapshot of the feed and load it:
-
+       mkdir -p data
        curl -o data/snapshot.geojson \
          https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson
        python pipeline/load_snapshot.py data/snapshot.geojson
 
-To recreate the database from scratch (deletes all data):
+To recreate everything from scratch (deletes all data):
 
     docker compose down -v
     docker compose up -d
@@ -137,12 +144,34 @@ Reproduce:
 
 ## Current architecture
 
-    USGS GeoJSON feed ──▶ pipeline/load_snapshot.py ──▶ Postgres (Docker)
-                          flatten → staging → upsert     earthquake_events
+    ┌──────────────── Docker Compose ────────────────┐
+    │                                                │
+    │   Airflow (standalone, LocalExecutor)          │
+    │   UI: http://localhost:8080                    │
+    │            │                                   │
+    │            ▼                                   │
+    │   Postgres                                     │
+    │   ├── earthquake  ← pipeline data              │
+    │   └── airflow     ← Airflow metadata           │
+    │                                                │
+    └────────────────────────────────────────────────┘
 
-- The table schema lives in `sql/schema.sql` and is applied automatically
-  when the Postgres container is created for the first time.
-- Each load runs in a single transaction: data is written to a temporary
-  staging table, then upserted into `earthquake_events` by `event_id`,
-  only if the incoming version has a newer `updated_at`.
-- The loader reports how many events were inserted, updated and unchanged.
+- Airflow runs all its components in a single container (`airflow standalone`)
+  with LocalExecutor — no Celery or Redis needed at this scale.
+- One Postgres instance hosts two databases: pipeline data and Airflow
+  metadata are kept separate.
+- `dags/`, `pipeline/` and `data/` are mounted into the Airflow container,
+  so code changes are picked up without rebuilding images.
+- The loader (`pipeline/load_snapshot.py`) writes to a temporary staging
+  table and upserts into `earthquake_events` by `event_id`, only if the
+  incoming version has a newer `updated_at`.
+
+## Project structure
+
+    dags/                 Airflow DAGs
+    pipeline/             Loading logic used by DAGs and scripts
+    exploration/          Data exploration and DuckDB prototype
+    sql/                  Database schema and init scripts
+    data/                 Local data files (not tracked by git)
+    docker-compose.yml    Postgres + Airflow
+    .env.example          Template for environment variables

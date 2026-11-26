@@ -10,11 +10,39 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./sql/create_airflow_db.sql:/docker-entrypoint-initdb.d/00_airflow_db.sql:ro
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       retries: 5
+
+  airflow:
+    image: apache/airflow:3.3.2   # проверь последний тег 3.3.x на Docker Hub
+    container_name: eq_airflow
+    command: standalone
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # как работает сам Airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # чтобы DAG'и могли импортировать код из pipeline/
+      PYTHONPATH: /opt/airflow
+      # подключение к базе с данными, его будет читать наш загрузчик
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./pipeline:/opt/airflow/pipeline
+      - ./data:/opt/airflow/data
 
 volumes:
   pgdata:
