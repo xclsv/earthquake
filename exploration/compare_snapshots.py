@@ -1,3 +1,17 @@
+"""Compare two feed snapshots by event id.
+
+Counts new, dropped, updated events and events with a changed magnitude.
+Exploration only. Usage:
+    python exploration/compare_snapshots.py snapshot_1.geojson snapshot_2.geojson
+"""
+
+"""Сравнивает два снимка фида по идентификатору события.
+
+Подсчитывает новые, удаленные, обновленные события и события с измененной величиной.
+Только для исследования. Использование:
+    python exploration/compare_snapshots.py snapshot_1.geojson snapshot_2.geojson
+"""
+
 import sys, json
 import duckdb, pandas as pd
 

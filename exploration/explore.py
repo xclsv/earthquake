@@ -1,3 +1,13 @@
+"""First look at the all_month feed: event types, fields, data quality.
+
+Exploration only, not used by the pipeline.
+"""
+
+"""Первый взгляд на фид all_month: типы событий, поля, качество данных.
+
+Только для исследования, не используется в пайплайне.
+"""
+
 import json, duckdb, pandas as pd
 
 with open("data/all_month.geojson") as f:

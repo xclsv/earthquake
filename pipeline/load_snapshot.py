@@ -1,3 +1,23 @@
+"""Load GeoJSON events into the earthquake_events table in Postgres.
+
+Events are flattened, written to a temporary staging table and upserted
+by event_id in a single transaction. An existing row is overwritten only
+if the incoming version has a newer updated_at, so repeated loads are safe.
+
+Can be run as a script for a local file:
+    python pipeline/load_snapshot.py data/snapshot.geojson
+"""
+
+"""Загружает события в формате GeoJSON в таблицу earthquake_events в Postgres.
+
+События преобразуются в плоский формат, записываются во временную таблицу staging и 
+вставляются/обновляются по event_id в одной транзакции(upsert). Существующая строка 
+перезаписывается только в том случае, если входящая версия имеет более позднее значение updated_at,
+поэтому повторные загрузки безопасны.
+Можно запустить как скрипт для локального файла:
+    python pipeline/load_snapshot.py data/snapshot.geojson
+"""
+
 import os
 import sys
 import json
@@ -101,9 +121,7 @@ RETURNING (xmax = 0) AS inserted
 """
 
 
-def load(path):
-    with open(path) as f:
-        features = json.load(f)["features"]
+def load_features(features: list, source: str) -> dict:
     rows = [flatten(f) for f in features]
 
     insert_staging = (
@@ -125,11 +143,22 @@ def load(path):
 
     inserted = sum(results)
     updated = len(results) - inserted
-    print(f"{path}: {len(rows)} events in file, {inserted} inserted, "
+    print(f"{source}: {len(rows)} events in file, {inserted} inserted, "
           f"{updated} updated, {len(rows) - len(results)} unchanged, {total} rows in table")
     return {"inserted": inserted, "updated": updated,
             "unchanged": len(rows) - len(results)}
 
 
+def load_file(path: str) -> dict:
+    with open(path) as f:
+        return load_features(json.load(f)["features"], path)
+
+
+def load_object(key: str) -> dict:
+    from pipeline.storage import BUCKET, get_object
+    data = json.loads(get_object(key))
+    return load_features(data["features"], f"s3://{BUCKET}/{key}")
+
+
 if __name__ == "__main__":
-    load(sys.argv[1])
+    load_file(sys.argv[1])
