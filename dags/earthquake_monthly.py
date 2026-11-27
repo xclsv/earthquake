@@ -1,3 +1,19 @@
+"""Monthly reload of a full month from the FDSN Event API, plus backfill.
+
+Each run loads the month before its logical date: the run for March 1
+loads February. This picks up late revisions missed by the incremental
+DAG. With catchup=True, Airflow also creates runs for every past month
+since start_date, which backfills the history.
+"""
+
+"""Ежемесячная перезагрузка полного месяца из FDSN Event API, плюс бэкфилл.
+
+Каждый запуск загружает месяц перед своей логической датой: запуск 1 марта
+загружает февраль. Это позволяет учитывать последние изменения, которые были пропущены инкрементальным
+DAG. С параметром catchup=True, Airflow также создает запуски для каждого прошлого месяца
+с момента start_date, что позволяет заполнить историю.
+"""
+
 from datetime import datetime, timedelta
 
 from airflow.sdk import dag, task
@@ -25,12 +41,12 @@ def earthquake_monthly():
         # run on the 1st of a month → load the previous full month
         end = logical_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         start = (end - timedelta(days=1)).replace(day=1)
-        return fetch_period(start, end, RAW_DIR)
+        return fetch_period(start, end)
 
     @task
-    def load(path: str) -> dict:
-        from pipeline.load_snapshot import load as load_file
-        return load_file(path)
+    def load(key: str) -> dict:
+        from pipeline.load_snapshot import load_object
+        return load_object(key)
 
     load(fetch())
 

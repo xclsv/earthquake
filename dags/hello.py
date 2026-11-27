@@ -1,3 +1,7 @@
+"""Test DAG to check that Airflow runs tasks. Triggered manually."""
+
+"""Тестовый DAG для проверки того, что Airflow выполняет задачи. Запускается вручную."""
+
 from datetime import datetime
 from airflow.sdk import dag, task
 
