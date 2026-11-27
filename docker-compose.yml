@@ -18,7 +18,8 @@ services:
       retries: 5
 
   airflow:
-    image: apache/airflow:3.3.2   # проверь последний тег 3.3.x на Docker Hub
+    build: .
+    image: earthquake-airflow
     container_name: eq_airflow
     command: standalone
     depends_on:
@@ -27,6 +28,7 @@ services:
     environment:
       # как работает сам Airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       # чтобы DAG'и могли импортировать код из pipeline/
