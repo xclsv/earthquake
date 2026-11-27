@@ -27,7 +27,7 @@ and a dashboard.
   - [x] Loader for Postgres
   - [x] Airflow in Docker
   - [x] Airflow DAG for incremental loading
-  - [ ] Backfill via FDSN API
+  - [x] Backfill via FDSN API
 - [ ] Stage 2: dbt models, data tests, Metabase dashboard
 - [ ] Stage 3: Streaming ingestion with Kafka (producer + consumer)
 - [ ] Stage 4: Daily reconciliation of late updates, pipeline monitoring
@@ -121,6 +121,17 @@ in DuckDB on the two feed snapshots.
 - `first_seen_at` is kept on updates, `last_loaded_at` is refreshed —
   this allows tracking how many events were revised after the first load.
 - The load is performed as a single transaction via a temporary staging table. The output shows the number of inserted, updated, and unchanged rows
+- **Gap on a fresh start.** The monthly DAG loads only completed months,
+  and the incremental DAG only sees the last 24 hours. When the pipeline
+  starts from scratch, events between the start of the current month and
+  the incremental window are missing until the next monthly run.
+  Workaround: load the `all_month` feed once after the first start.
+- **Each monthly run is tied to its logical date, not to the current time.**
+  A rerun of the February 2024 run always loads February 2024, so failed
+  months can be retried independently at any time.
+- **The busiest month so far, July 2025, had about 16,500 events**
+  (likely aftershocks of the M8.8 Kamchatka earthquake), close to the API
+  limit. If a month exceeds it, the period will need to be split into weeks.
 
 **Assumption**
 
@@ -144,20 +155,20 @@ Reproduce:
 
 ## Current architecture
 
-    USGS feed (all_day)
-            │  every 15 min
-            ▼
-    ┌──────────────── Docker Compose ────────────────┐
-    │                                                │
-    │   Airflow (standalone, LocalExecutor)          │
-    │   UI: http://localhost:8080                    │
-    │     │ fetch                  │ load            │
-    │     ▼                        ▼                 │
-    │   data/raw/all_day/       Postgres             │
-    │   (raw GeoJSON)           ├── earthquake       │
-    │                           └── airflow          │
-    │                                                │
-    └────────────────────────────────────────────────┘
+    USGS feed (all_day)          USGS FDSN Event API
+            │ every 15 min               │ monthly + backfill
+            ▼                            ▼
+    ┌──────────────────── Docker Compose ────────────────────┐
+    │                                                        │
+    │   Airflow (standalone, LocalExecutor)                  │
+    │   UI: http://localhost:8080                            │
+    │     │ fetch                              │ load        │
+    │     ▼                                    ▼             │
+    │   data/raw/all_day/                    Postgres        │
+    │   data/raw/fdsn/                       ├── earthquake  │
+    │   (raw GeoJSON)                        └── airflow     │
+    │                                                        │
+    └────────────────────────────────────────────────────────┘
 
 - Every 15 minutes, the `earthquake_incremental` DAG fetches the `all_day`
   feed, saves the raw response to `data/raw/all_day/` (named by the feed
@@ -173,6 +184,31 @@ Reproduce:
 - The loader (`pipeline/load_snapshot.py`) writes to a temporary staging
   table and upserts into `earthquake_events` by `event_id`, only if the
   incoming version has a newer `updated_at`.
+
+## Pipelines
+
+Both DAGs share the same loader, so all events end up in one table
+regardless of where they came from.
+
+### `earthquake_incremental`
+
+- Runs every 15 minutes.
+- Fetches the `all_day` feed, saves the raw response to `data/raw/all_day/`
+  and upserts it into Postgres.
+- Keeps the table close to real time: new events appear within minutes.
+
+### `earthquake_monthly`
+
+- Runs on the 1st of every month and loads the previous full month
+  from the FDSN Event API.
+- With `catchup=True` and `start_date` set to February 2024, it also
+  backfills the history: Airflow creates one run per missed month,
+  starting from January 2024.
+- Reloading a whole month picks up late revisions that the incremental
+  DAG may have missed after events left its 24-hour window.
+- Before downloading, it checks the number of events via the API `count`
+  method and fails with a clear error if a month exceeds the API limit
+  of 20,000 events.
 
 ## Project structure
 
