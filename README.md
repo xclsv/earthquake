@@ -26,7 +26,7 @@ and a dashboard.
   - [x] Postgres in Docker
   - [x] Loader for Postgres
   - [x] Airflow in Docker
-  - [ ] Airflow DAG for incremental loading
+  - [x] Airflow DAG for incremental loading
   - [ ] Backfill via FDSN API
 - [ ] Stage 2: dbt models, data tests, Metabase dashboard
 - [ ] Stage 3: Streaming ingestion with Kafka (producer + consumer)
@@ -144,24 +144,32 @@ Reproduce:
 
 ## Current architecture
 
+    USGS feed (all_day)
+            │  every 15 min
+            ▼
     ┌──────────────── Docker Compose ────────────────┐
     │                                                │
     │   Airflow (standalone, LocalExecutor)          │
     │   UI: http://localhost:8080                    │
-    │            │                                   │
-    │            ▼                                   │
-    │   Postgres                                     │
-    │   ├── earthquake  ← pipeline data              │
-    │   └── airflow     ← Airflow metadata           │
+    │     │ fetch                  │ load            │
+    │     ▼                        ▼                 │
+    │   data/raw/all_day/       Postgres             │
+    │   (raw GeoJSON)           ├── earthquake       │
+    │                           └── airflow          │
     │                                                │
     └────────────────────────────────────────────────┘
 
+- Every 15 minutes, the `earthquake_incremental` DAG fetches the `all_day`
+  feed, saves the raw response to `data/raw/all_day/` (named by the feed
+  generation time) and loads it into Postgres.
 - Airflow runs all its components in a single container (`airflow standalone`)
   with LocalExecutor — no Celery or Redis needed at this scale.
 - One Postgres instance hosts two databases: pipeline data and Airflow
   metadata are kept separate.
 - `dags/`, `pipeline/` and `data/` are mounted into the Airflow container,
-  so code changes are picked up without rebuilding images.
+  so code changes are picked up without rebuilding. Python dependencies
+  are installed into a custom image (`Dockerfile`, `requirements-airflow.txt`),
+  so changing them requires `docker compose up -d --build`.
 - The loader (`pipeline/load_snapshot.py`) writes to a temporary staging
   table and upserts into `earthquake_events` by `event_id`, only if the
   incoming version has a newer `updated_at`.
