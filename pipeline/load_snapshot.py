@@ -5,6 +5,8 @@ import json
 import psycopg
 from dotenv import load_dotenv
 
+from typing import LiteralString, cast
+
 load_dotenv()  # читает .env из текущей папки
 
 
@@ -112,17 +114,21 @@ def load(path):
     with get_connection() as conn:          # одна транзакция на всю загрузку
         with conn.cursor() as cur:
             cur.execute(CREATE_STAGING_SQL)
-            cur.executemany(insert_staging,
+            cur.executemany(cast(LiteralString, insert_staging),
                             [tuple(r[c] for c in STAGING_COLUMNS) for r in rows])
-            cur.execute(UPSERT_SQL)
+            cur.execute(cast(LiteralString, UPSERT_SQL))
             results = [r[0] for r in cur.fetchall()]
             cur.execute("SELECT count(*) FROM earthquake_events")
-            total = cur.fetchone()[0]
+            row = cur.fetchone()
+            assert row is not None
+            total = row[0]
 
     inserted = sum(results)
     updated = len(results) - inserted
     print(f"{path}: {len(rows)} events in file, {inserted} inserted, "
           f"{updated} updated, {len(rows) - len(results)} unchanged, {total} rows in table")
+    return {"inserted": inserted, "updated": updated,
+            "unchanged": len(rows) - len(results)}
 
 
 if __name__ == "__main__":
