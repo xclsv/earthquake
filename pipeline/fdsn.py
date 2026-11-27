@@ -1,13 +1,27 @@
-import os
+"""Download events for a time period from the USGS FDSN Event API.
+
+Checks the number of events first, because the API returns at most
+20,000 events per request. Raw responses are stored in object storage
+under usgs/fdsn/. Used by the monthly DAG for backfill and monthly reloads.
+"""
+
+"""Скачивает события за период времени из USGS FDSN Event API.
+Сначала проверяет количество событий, потому что API возвращает максимум
+20 000 событий за один запрос. Сырые ответы сохраняются в объектное хранилище 
+под usgs/fdsn/. Используется ежемесячным DAG'ом для бэкфилла и ежемесячной перезагрузки.
+"""
+
 from datetime import datetime
 
 import requests
+
+from pipeline.storage import put_object
 
 FDSN_URL = "https://earthquake.usgs.gov/fdsnws/event/1/"
 MAX_EVENTS = 20000  # API limit per request
 
 
-def fetch_period(start: datetime, end: datetime, raw_dir: str) -> str:
+def fetch_period(start: datetime, end: datetime) -> str:
     """Download all events between start and end, save as is, return the path."""
     params = {
         "starttime": start.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -30,9 +44,5 @@ def fetch_period(start: datetime, end: datetime, raw_dir: str) -> str:
     )
     response.raise_for_status()
 
-    folder = os.path.join(raw_dir, "fdsn")
-    os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, f"{start:%Y-%m-%d}_{end:%Y-%m-%d}.geojson")
-    with open(path, "wb") as f:
-        f.write(response.content)
-    return path
+    key = f"usgs/fdsn/{start:%Y-%m-%d}_{end:%Y-%m-%d}.geojson"
+    return put_object(key, response.content)

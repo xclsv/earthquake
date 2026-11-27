@@ -1,3 +1,7 @@
+"""DuckDB prototype of the upsert logic. Exploration only."""
+
+"""Прототип логики вставки/обновления в DuckDB. Только для исследования."""
+
 import sys
 import json
 import duckdb
